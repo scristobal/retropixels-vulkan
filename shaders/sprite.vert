@@ -14,7 +14,6 @@ void main() {
     );
 
     fragTexCoord = corners[gl_VertexIndex];
-
     vec2 pixel = sprite.rectangle.xy + fragTexCoord * sprite.rectangle.zw;
 
     gl_Position = vec4(pixel / sprite.canvasSize * 2.0 - 1.0, 0.0, 1.0);

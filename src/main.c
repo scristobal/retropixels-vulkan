@@ -1,4 +1,5 @@
 #define GLFW_INCLUDE_NONE
+
 #include <GLFW/glfw3.h>
 #include "renderer.h"
 
@@ -17,6 +18,7 @@ static void key_callback(GLFWwindow *window, int key, int scancode, int action, 
 {
     (void)scancode;
     (void)mods;
+
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GLFW_TRUE);
 }
@@ -25,6 +27,7 @@ static void framebuffer_callback(GLFWwindow *window, int width, int height)
 {
     (void)width;
     (void)height;
+
     window_metrics_changed = true;
     renderer_surface_changed(glfwGetWindowUserPointer(window));
 }
@@ -33,6 +36,7 @@ static void content_scale_callback(GLFWwindow *window, float xscale, float yscal
 {
     (void)xscale;
     (void)yscale;
+
     window_metrics_changed = true;
     renderer_surface_changed(glfwGetWindowUserPointer(window));
 }
@@ -44,11 +48,14 @@ static int prepare_window(GLFWwindow *window)
 {
     int requested_width = 0, requested_height = 0;
     double deadline = glfwGetTime() + 2.0;
+
     for (;;) {
         int width, height, framebuffer_width, framebuffer_height;
         int logical_width, logical_height;
+
         glfwPollEvents();
         if (glfwWindowShouldClose(window)) return 0;
+
         glfwGetWindowSize(window, &width, &height);
         glfwGetFramebufferSize(window, &framebuffer_width, &framebuffer_height);
         if (!width || !height || !framebuffer_width || !framebuffer_height) {
@@ -56,6 +63,7 @@ static int prepare_window(GLFWwindow *window)
             deadline = glfwGetTime() + 2.0;
             continue;
         }
+
         if (framebuffer_width == PRESENT_WIDTH && framebuffer_height == PRESENT_HEIGHT)
             return 1;
 
@@ -67,17 +75,20 @@ static int prepare_window(GLFWwindow *window)
                     PRESENT_WIDTH, PRESENT_HEIGHT);
             return -1;
         }
+
         if (glfwGetTime() > deadline) {
             fprintf(stderr, "The window system did not provide the requested %dx%d framebuffer.\n",
                     PRESENT_WIDTH, PRESENT_HEIGHT);
             return -1;
         }
+
         if (logical_width != requested_width || logical_height != requested_height) {
             glfwSetWindowSizeLimits(window, logical_width, logical_height, logical_width, logical_height);
             glfwSetWindowSize(window, logical_width, logical_height);
             requested_width = logical_width;
             requested_height = logical_height;
         }
+
         glfwWaitEventsTimeout(0.01);
     }
 }
@@ -86,14 +97,17 @@ static void report_window_metrics(GLFWwindow *window)
 {
     int width, height, framebuffer_width, framebuffer_height;
     float xscale, yscale;
+
 #ifdef __APPLE__
     const double dpi_baseline = 72.0;
 #else
     const double dpi_baseline = 96.0;
 #endif
+
     glfwGetWindowSize(window, &width, &height);
     glfwGetFramebufferSize(window, &framebuffer_width, &framebuffer_height);
     glfwGetWindowContentScale(window, &xscale, &yscale);
+
     fprintf(stderr, "Window: %dx%d screen units; framebuffer: %dx%d physical pixels.\n",
             width, height, framebuffer_width, framebuffer_height);
     fprintf(stderr, "DPI: %.1fx%.1f effective (%.0f-DPI baseline); "
@@ -101,6 +115,7 @@ static void report_window_metrics(GLFWwindow *window)
             dpi_baseline * xscale, dpi_baseline * yscale, dpi_baseline,
             xscale, yscale, (double)framebuffer_width / width,
             (double)framebuffer_height / height);
+
     window_metrics_changed = false;
 }
 
@@ -116,6 +131,7 @@ int main(int argc, char **argv)
     GLFWwindow *window = NULL;
     Renderer *renderer = NULL;
     int exit_code = EXIT_FAILURE;
+
 #ifdef NDEBUG
     int validation = 0;
 #else
@@ -137,42 +153,55 @@ int main(int argc, char **argv)
 
     glfwSetErrorCallback(error_callback);
     if (!glfwInit()) goto cleanup;
+
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_FALSE);
     glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_TRUE);
+
     window = glfwCreateWindow(PRESENT_WIDTH, PRESENT_HEIGHT, "RetroPixels Vulkan", NULL, NULL);
     if (!window) goto cleanup;
+
     glfwSetWindowSizeLimits(window, PRESENT_WIDTH, PRESENT_HEIGHT, PRESENT_WIDTH, PRESENT_HEIGHT);
+
     glfwSetKeyCallback(window, key_callback);
     glfwSetFramebufferSizeCallback(window, framebuffer_callback);
     glfwSetWindowContentScaleCallback(window, content_scale_callback);
+
     {
         int ready = prepare_window(window);
+
         if (ready < 0) goto cleanup;
         if (!ready) {
             exit_code = EXIT_SUCCESS;
             goto cleanup;
         }
     }
+
     report_window_metrics(window);
 
     renderer = renderer_create(window, validation);
     if (!renderer) goto cleanup;
+
     glfwSetWindowUserPointer(window, renderer);
 
     while (!glfwWindowShouldClose(window)) {
         int ready = prepare_window(window);
+
         if (ready < 0) goto cleanup;
         if (!ready) break;
+
         if (window_metrics_changed) report_window_metrics(window);
+
         if (!renderer_draw(renderer)) goto cleanup;
     }
+
     exit_code = EXIT_SUCCESS;
 
 cleanup:
     if (!renderer_destroy(renderer)) exit_code = EXIT_FAILURE;
     if (window) glfwDestroyWindow(window);
     glfwTerminate();
+
     return exit_code;
 }
