@@ -13,7 +13,6 @@
 #include <string.h>
 
 #define FRAMES_IN_FLIGHT 2
-#define SPRITE_SIZE 32
 #define CANVAS_FORMAT VK_FORMAT_R16G16B16A16_SFLOAT
 #define TEXTURE_FORMAT VK_FORMAT_R8G8B8A8_SRGB
 #define VALIDATION_LAYER "VK_LAYER_KHRONOS_validation"
@@ -947,7 +946,7 @@ static int create_frames(Renderer *r)
     return 1;
 }
 
-static int record_frame(Renderer *r, Frame *frame, uint32_t image_index)
+static int record_frame(Renderer *r, Frame *frame, uint32_t image_index, int sprite_x, int sprite_y)
 {
     VkCommandBuffer command = frame->command;
     VkImage canvas = frame->canvas.handle;
@@ -982,7 +981,7 @@ static int record_frame(Renderer *r, Frame *frame, uint32_t image_index)
     VkViewport viewport = { 0, 0, RENDER_WIDTH, RENDER_HEIGHT, 0, 1 };
     VkRect2D scissor = { { 0, 0 }, { RENDER_WIDTH, RENDER_HEIGHT } };
     SpriteConstants sprite = {
-        { (RENDER_WIDTH - SPRITE_SIZE) / 2.0f, (RENDER_HEIGHT - SPRITE_SIZE) / 2.0f, SPRITE_SIZE, SPRITE_SIZE },
+        { sprite_x, sprite_y, SPRITE_SIZE, SPRITE_SIZE },
         { RENDER_WIDTH, RENDER_HEIGHT }
     };
 
@@ -1068,7 +1067,7 @@ void renderer_surface_changed(Renderer *r)
     if (r) r->surface_changed = true;
 }
 
-int renderer_draw(Renderer *r)
+int renderer_draw(Renderer *r, int sprite_x, int sprite_y)
 {
     Frame *frame = &r->frames[r->frame_index];
     uint32_t image_index;
@@ -1105,7 +1104,7 @@ int renderer_draw(Renderer *r)
     if (acquired == VK_ERROR_OUT_OF_DATE_KHR) return recreate_swapchain(r);
     if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) return vk_ok(acquired, "Acquire swapchain image");
 
-    if (!record_frame(r, frame, image_index)) return 0;
+    if (!record_frame(r, frame, image_index, sprite_x, sprite_y)) return 0;
     VK_TRY(vkResetFences(r->device, 1, &frame->fence));
     signal.semaphore = r->swapchain.images[image_index].finished;
     VK_TRY(vkQueueSubmit2(r->graphics_queue, 1, &submit, frame->fence));

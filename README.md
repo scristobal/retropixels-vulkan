@@ -1,14 +1,16 @@
 # RetroPixels Vulkan
 
 A C23 sprite renderer built around Vulkan 1.4. The scene renders at **320×180**
-and is presented with **5× nearest-neighbor scaling** in a window with a fixed
-**1600×900 physical pixel framebuffer**. Each canvas pixel becomes a 5×5 block of
-display pixels. The 32×32 avatar is centered at its native size on the canvas.
-Press **Escape** to quit.
+and is presented with **10× nearest-neighbor scaling** in a window with a fixed
+**3200×1800 physical pixel framebuffer**. Each canvas pixel becomes a 10×10 block of
+display pixels. The 32×32 avatar starts centered. Hold **WASD** to move it at
+60 canvas pixels per second: **W** up, **A** left, **S** down, **D** right.
+Diagonal movement keeps the same speed. Integer `%` wraps its position at every
+edge, and drawing stays aligned to whole canvas pixels. Press **Escape** to quit.
 
 The window is DPI-aware. On a Wayland desktop at 200% scale, its content area is
-800×450 logical screen units with a native 1600×900 framebuffer. Desktop DPI does
-not change the canvas resolution or the 5× physical pixel multiplier.
+1600×900 logical screen units with a native 3200×1800 framebuffer. Desktop DPI does
+not change the canvas resolution or the 10× physical pixel multiplier.
 Startup and display-scale changes log the effective DPI, its reference baseline,
 the window content scale, and the measured framebuffer-to-window ratio. Effective
 DPI describes desktop scaling rather than the monitor's physical pixel density.
@@ -82,7 +84,7 @@ specified in the [Khronos semaphore reuse guidance](https://docs.vulkan.org/guid
 
 The swapchain uses FIFO presentation. User resizing is disabled. Native framebuffer
 DPI scaling is enabled, and the logical window dimensions are adjusted using the
-measured framebuffer-to-window ratio to retain exactly 1600×900 physical pixels.
+measured framebuffer-to-window ratio to retain exactly 3200×1800 physical pixels.
 Content-scale changes are handled before rendering resumes. Surface invalidation
 recreates presentation resources; the canvas and drawing pipeline keep their fixed
 resolution. Zero-sized framebuffers wait for window events.

@@ -3,9 +3,12 @@
 #include <GLFW/glfw3.h>
 #include "renderer.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define SPRITE_SPEED 60 /* Canvas pixels per second. */
 
 static bool window_metrics_changed = true;
 
@@ -122,8 +125,22 @@ static void report_window_metrics(GLFWwindow *window)
 static void usage(const char *program)
 {
     printf("Usage: %s [--validation | --no-validation]\n"
+           "  WASD moves the sprite. Positions wrap at the canvas edges.\n"
            "  Escape closes the window.\n"
            "  Debug builds enable validation when available.\n", program);
+}
+
+static int move_sprite_axis(double *position, double movement, int extent)
+{
+    *position += movement;
+
+    int pixel = (int)floor(*position);
+    int period = extent + SPRITE_SIZE;
+    int wrapped = ((pixel + SPRITE_SIZE) % period + period) % period - SPRITE_SIZE;
+
+    *position += wrapped - pixel;
+
+    return wrapped;
 }
 
 int main(int argc, char **argv)
@@ -131,6 +148,10 @@ int main(int argc, char **argv)
     GLFWwindow *window = NULL;
     Renderer *renderer = NULL;
     int exit_code = EXIT_FAILURE;
+
+    double sprite_x = (RENDER_WIDTH - SPRITE_SIZE) / 2.0;
+    double sprite_y = (RENDER_HEIGHT - SPRITE_SIZE) / 2.0;
+    double previous_time;
 
 #ifdef NDEBUG
     int validation = 0;
@@ -185,6 +206,8 @@ int main(int argc, char **argv)
 
     glfwSetWindowUserPointer(window, renderer);
 
+    previous_time = glfwGetTime();
+
     while (!glfwWindowShouldClose(window)) {
         int ready = prepare_window(window);
 
@@ -193,7 +216,23 @@ int main(int argc, char **argv)
 
         if (window_metrics_changed) report_window_metrics(window);
 
-        if (!renderer_draw(renderer)) goto cleanup;
+        double now = glfwGetTime();
+        double elapsed = now - previous_time;
+        previous_time = now;
+        if (elapsed > 0.1) elapsed = 0.1;
+
+        int horizontal = (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) -
+                         (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS);
+        int vertical = (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) -
+                       (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS);
+
+        double distance = SPRITE_SPEED * elapsed;
+        if (horizontal && vertical) distance /= sqrt(2.0);
+
+        int x = move_sprite_axis(&sprite_x, horizontal * distance, RENDER_WIDTH);
+        int y = move_sprite_axis(&sprite_y, vertical * distance, RENDER_HEIGHT);
+
+        if (!renderer_draw(renderer, x, y)) goto cleanup;
     }
 
     exit_code = EXIT_SUCCESS;

@@ -7,6 +7,7 @@ typedef struct Renderer Renderer;
 enum {
     RENDER_WIDTH = 320,
     RENDER_HEIGHT = 180,
+    SPRITE_SIZE = 32,
 
     PRESENT_SCALE = 10,
     PRESENT_WIDTH = RENDER_WIDTH * PRESENT_SCALE,
@@ -17,7 +18,9 @@ enum {
 Renderer *renderer_create(GLFWwindow *window, int validation);
 
 void renderer_surface_changed(Renderer *renderer);
-int renderer_draw(Renderer *renderer);
+
+/* Sprite position is measured in whole canvas pixels. */
+int renderer_draw(Renderer *renderer, int sprite_x, int sprite_y);
 
 /* Returns false if validation reported errors, including during destruction. */
 int renderer_destroy(Renderer *renderer);
