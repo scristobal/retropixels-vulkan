@@ -1,0 +1,5 @@
+Generated with the built-in image generation tool; transparent background enabled.
+Source PNG: 887x1774 RGBA. In-game draw size: 24x48 canvas pixels.
+
+Prompt:
+Use case: stylized-concept. Asset type: a production-ready 2D pixel-art game sprite for a native 320x180 pixel game, used as the static second sprite beside a 32x32 retro character. Create one tall blue crystal obelisk, recognizable crystalline silhouette and a few clean faceted highlights. Transparent background with actual alpha, no ground plane, no cast shadow, no glow outside the silhouette. Exact intended native canvas: 24 pixels wide by 48 pixels high, distinctly non-square. The whole crystal fits in that canvas with a one- or two-pixel transparent margin. Strict low-resolution pixel art, hard square pixel clusters, one-native-pixel edge steps, simple limited colors, no anti-aliasing, no soft gradients, no blur, no text, no grid, no border, no UI, no additional objects. Deliver the actual 24x48 RGBA PNG asset rather than a large presentation mockup or sprite sheet.

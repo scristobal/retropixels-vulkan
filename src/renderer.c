@@ -2,8 +2,8 @@
 #define GLFW_INCLUDE_NONE
 
 #include <GLFW/glfw3.h>
-#include <stb_image.h>
 #include "renderer.h"
+#include "sprite.h"
 
 #include <stdatomic.h>
 #include <stddef.h>
@@ -29,6 +29,11 @@ typedef struct Image {
     VkDeviceMemory memory;
     VkImageView view;
 } Image;
+
+struct RendererTexture {
+    Image image;
+    RendererTexture *next;
+};
 
 typedef struct Frame {
     VkCommandBuffer command;
@@ -74,7 +79,7 @@ struct Renderer {
     VkQueue graphics_queue, present_queue;
     VkCommandPool command_pool;
 
-    Image texture;
+    RendererTexture *textures;
     VkSampler sampler;
 
     VkDescriptorSetLayout descriptor_layout;
@@ -589,13 +594,8 @@ fail:
     return 0;
 }
 
-static int create_texture(Renderer *r)
+static int create_sampler(Renderer *r)
 {
-    unsigned char *pixels;
-    int width, height, channels, success = 0;
-    Buffer staging = {0};
-    VkCommandBuffer command;
-
     VkSamplerCreateInfo sampler = {
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
         .magFilter = VK_FILTER_NEAREST, .minFilter = VK_FILTER_NEAREST,
@@ -605,56 +605,78 @@ static int create_texture(Renderer *r)
         .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, .maxLod = 0
     };
 
+    VK_TRY(vkCreateSampler(r->device, &sampler, NULL, &r->sampler));
+
+    return 1;
+}
+
+RendererTexture *renderer_texture_create(Renderer *r, const unsigned char *pixels, int width, int height)
+{
+    if (!pixels || width <= 0 || height <= 0) {
+        fprintf(stderr, "A texture requires RGBA8 pixels and positive dimensions.\n");
+        return NULL;
+    }
+
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(r->physical_device, &properties);
+    if ((uint32_t)width > properties.limits.maxImageDimension2D ||
+        (uint32_t)height > properties.limits.maxImageDimension2D) {
+        fprintf(stderr, "Texture dimensions %dx%d exceed the device's image limit.\n", width, height);
+        return NULL;
+    }
+
+    RendererTexture *texture = calloc(1, sizeof(*texture));
+    if (!texture) return NULL;
+
+    VkDeviceSize size = (VkDeviceSize)width * height * 4;
+    Buffer staging = {0};
+    VkCommandBuffer command;
+    int success = 0;
+
     VkBufferImageCopy2 region = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
         .imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-        .imageExtent = { SPRITE_SIZE, SPRITE_SIZE, 1 }
+        .imageExtent = { (uint32_t)width, (uint32_t)height, 1 }
     };
     VkCopyBufferToImageInfo2 copy = {
         .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2,
         .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, .regionCount = 1, .pRegions = &region
     };
-    const char *path = RETROPIXELS_ASSETS_DIR "/avatar-1x.png";
 
-    pixels = stbi_load(path, &width, &height, &channels, STBI_rgb_alpha);
-    if (!pixels) {
-        fprintf(stderr, "Failed to load %s: %s\n", path, stbi_failure_reason());
-        return 0;
-    }
-
-    if (width != SPRITE_SIZE || height != SPRITE_SIZE) {
-        fprintf(stderr, "Sprite must be %dx%d; got %dx%d.\n", SPRITE_SIZE, SPRITE_SIZE, width, height);
-        goto done;
-    }
-
-    if (!create_buffer(r, SPRITE_SIZE * SPRITE_SIZE * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+    if (!create_buffer(r, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &staging)) goto done;
-    if (!fill_buffer(r, &staging, pixels, SPRITE_SIZE * SPRITE_SIZE * 4)) goto done;
+    if (!fill_buffer(r, &staging, pixels, size)) goto done;
 
-    if (!create_image(r, SPRITE_SIZE, SPRITE_SIZE, TEXTURE_FORMAT,
-                      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, &r->texture)) goto done;
+    if (!create_image(r, (uint32_t)width, (uint32_t)height, TEXTURE_FORMAT,
+                      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, &texture->image)) goto done;
 
     if (!begin_upload(r, &command)) goto done;
-    image_barrier(command, r->texture.handle, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    image_barrier(command, texture->image.handle, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                   VK_PIPELINE_STAGE_2_NONE, 0, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
     copy.srcBuffer = staging.handle;
-    copy.dstImage = r->texture.handle;
+    copy.dstImage = texture->image.handle;
     vkCmdCopyBufferToImage2(command, &copy);
 
-    image_barrier(command, r->texture.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    image_barrier(command, texture->image.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                   VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     if (!end_upload(r, command)) goto done;
 
-    if (!vk_ok(vkCreateSampler(r->device, &sampler, NULL, &r->sampler), "Create sprite sampler")) goto done;
+    texture->next = r->textures;
+    r->textures = texture;
     success = 1;
 
 done:
     destroy_buffer(r, &staging);
-    stbi_image_free(pixels);
 
-    return success;
+    if (!success) {
+        destroy_image(r, &texture->image);
+        free(texture);
+        return NULL;
+    }
+
+    return texture;
 }
 
 static int create_descriptors(Renderer *r)
@@ -946,7 +968,8 @@ static int create_frames(Renderer *r)
     return 1;
 }
 
-static int record_frame(Renderer *r, Frame *frame, uint32_t image_index, int sprite_x, int sprite_y)
+static int record_frame(Renderer *r, Frame *frame, uint32_t image_index,
+                        const Sprite *sprites, size_t sprite_count)
 {
     VkCommandBuffer command = frame->command;
     VkImage canvas = frame->canvas.handle;
@@ -968,22 +991,8 @@ static int record_frame(Renderer *r, Frame *frame, uint32_t image_index, int spr
         .colorAttachmentCount = 1, .pColorAttachments = &color
     };
 
-    VkDescriptorImageInfo sprite_image = {
-        .sampler = r->sampler, .imageView = r->texture.view,
-        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    };
-    VkWriteDescriptorSet sprite_descriptor = {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstBinding = 0, .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &sprite_image
-    };
-
     VkViewport viewport = { 0, 0, RENDER_WIDTH, RENDER_HEIGHT, 0, 1 };
     VkRect2D scissor = { { 0, 0 }, { RENDER_WIDTH, RENDER_HEIGHT } };
-    SpriteConstants sprite = {
-        { sprite_x, sprite_y, SPRITE_SIZE, SPRITE_SIZE },
-        { RENDER_WIDTH, RENDER_HEIGHT }
-    };
 
     VkImageBlit2 region = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2,
@@ -1015,9 +1024,36 @@ static int record_frame(Renderer *r, Frame *frame, uint32_t image_index, int spr
     vkCmdSetViewport(command, 0, 1, &viewport);
     vkCmdSetScissor(command, 0, 1, &scissor);
 
-    vkCmdPushDescriptorSet(command, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1, &sprite_descriptor);
-    vkCmdPushConstants(command, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(sprite), &sprite);
-    vkCmdDraw(command, 6, 1, 0, 0);
+    RendererTexture *bound_texture = NULL;
+
+    for (size_t i = 0; i < sprite_count; ++i) {
+        RendererTexture *texture = sprites[i].image->texture;
+
+        if (texture != bound_texture) {
+            VkDescriptorImageInfo image = {
+                .sampler = r->sampler, .imageView = texture->image.view,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+            };
+            VkWriteDescriptorSet descriptor = {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstBinding = 0, .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &image
+            };
+
+            vkCmdPushDescriptorSet(command, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1, &descriptor);
+            bound_texture = texture;
+        }
+
+        SpriteBounds bounds = sprite_bounds(&sprites[i]);
+        SpriteConstants constants = {
+            { bounds.x, bounds.y, bounds.width, bounds.height },
+            { RENDER_WIDTH, RENDER_HEIGHT }
+        };
+
+        vkCmdPushConstants(command, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(constants), &constants);
+        vkCmdDraw(command, 6, 1, 0, 0);
+    }
+
     vkCmdEndRendering(command);
 
     image_barrier(command, canvas, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -1051,7 +1087,7 @@ Renderer *renderer_create(GLFWwindow *window, int validation)
     if (!vk_ok(glfwCreateWindowSurface(r->instance, window, NULL, &r->surface), "Create window surface")) goto fail;
 
     if (!create_device(r) || !create_frames(r) ||
-        !create_texture(r) || !create_descriptors(r) || !create_pipeline(r) || !wait_for_framebuffer(r) ||
+        !create_sampler(r) || !create_descriptors(r) || !create_pipeline(r) || !wait_for_framebuffer(r) ||
         !create_swapchain(r)) goto fail;
 
     return r;
@@ -1067,7 +1103,7 @@ void renderer_surface_changed(Renderer *r)
     if (r) r->surface_changed = true;
 }
 
-int renderer_draw(Renderer *r, int sprite_x, int sprite_y)
+int renderer_draw(Renderer *r, const Sprite *sprites, size_t sprite_count)
 {
     Frame *frame = &r->frames[r->frame_index];
     uint32_t image_index;
@@ -1095,6 +1131,18 @@ int renderer_draw(Renderer *r, int sprite_x, int sprite_y)
         .pSwapchains = &r->swapchain.handle, .pImageIndices = &image_index
     };
 
+    if (sprite_count && !sprites) {
+        fprintf(stderr, "A non-empty sprite list requires sprite data.\n");
+        return 0;
+    }
+
+    for (size_t i = 0; i < sprite_count; ++i) {
+        if (!sprites[i].image || !sprites[i].image->texture) {
+            fprintf(stderr, "Every sprite must refer to a loaded image.\n");
+            return 0;
+        }
+    }
+
     if (!wait_for_framebuffer(r)) return 1;
     if (r->surface_changed && !recreate_swapchain(r)) return 0;
 
@@ -1104,7 +1152,7 @@ int renderer_draw(Renderer *r, int sprite_x, int sprite_y)
     if (acquired == VK_ERROR_OUT_OF_DATE_KHR) return recreate_swapchain(r);
     if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) return vk_ok(acquired, "Acquire swapchain image");
 
-    if (!record_frame(r, frame, image_index, sprite_x, sprite_y)) return 0;
+    if (!record_frame(r, frame, image_index, sprites, sprite_count)) return 0;
     VK_TRY(vkResetFences(r->device, 1, &frame->fence));
     signal.semaphore = r->swapchain.images[image_index].finished;
     VK_TRY(vkQueueSubmit2(r->graphics_queue, 1, &submit, frame->fence));
@@ -1145,7 +1193,14 @@ int renderer_destroy(Renderer *r)
         if (r->descriptor_layout) vkDestroyDescriptorSetLayout(r->device, r->descriptor_layout, NULL);
 
         if (r->sampler) vkDestroySampler(r->device, r->sampler, NULL);
-        destroy_image(r, &r->texture);
+
+        while (r->textures) {
+            RendererTexture *texture = r->textures;
+            r->textures = texture->next;
+
+            destroy_image(r, &texture->image);
+            free(texture);
+        }
 
         vkDestroyDevice(r->device, NULL);
     }

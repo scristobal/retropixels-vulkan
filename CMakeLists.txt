@@ -71,7 +71,7 @@ endforeach()
 
 add_custom_target(RetroPixelsShaders DEPENDS ${SHADER_OUTPUTS})
 
-add_executable(RetroPixels src/main.c src/renderer.c src/image.c)
+add_executable(RetroPixels src/main.c src/renderer.c src/sprite.c src/image.c)
 add_dependencies(RetroPixels RetroPixelsShaders)
 
 target_compile_definitions(RetroPixels PRIVATE

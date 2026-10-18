@@ -2,8 +2,8 @@
 
 #include <GLFW/glfw3.h>
 #include "renderer.h"
+#include "sprite.h"
 
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -130,27 +130,12 @@ static void usage(const char *program)
            "  Debug builds enable validation when available.\n", program);
 }
 
-static int move_sprite_axis(double *position, double movement, int extent)
-{
-    *position += movement;
-
-    int pixel = (int)floor(*position);
-    int period = extent + SPRITE_SIZE;
-    int wrapped = ((pixel + SPRITE_SIZE) % period + period) % period - SPRITE_SIZE;
-
-    *position += wrapped - pixel;
-
-    return wrapped;
-}
-
 int main(int argc, char **argv)
 {
     GLFWwindow *window = NULL;
     Renderer *renderer = NULL;
     int exit_code = EXIT_FAILURE;
 
-    double sprite_x = (RENDER_WIDTH - SPRITE_SIZE) / 2.0;
-    double sprite_y = (RENDER_HEIGHT - SPRITE_SIZE) / 2.0;
     double previous_time;
 
 #ifdef NDEBUG
@@ -206,6 +191,22 @@ int main(int argc, char **argv)
 
     glfwSetWindowUserPointer(window, renderer);
 
+    SpriteImage avatar;
+    if (!sprite_image_load(&avatar, renderer, RETROPIXELS_ASSETS_DIR "/avatar-1x.png")) goto cleanup;
+
+    SpriteImage crystal;
+    if (!sprite_image_load(&crystal, renderer, RETROPIXELS_ASSETS_DIR "/crystal.png")) goto cleanup;
+
+    Sprite sprites[] = {
+        sprite_create(&avatar, (RENDER_WIDTH - avatar.width) / 2.0,
+                      (RENDER_HEIGHT - avatar.height) / 2.0, SPRITE_SPEED),
+        sprite_create(&crystal, 64, 74, 0)
+    };
+    sprites[1].width = 24;
+    sprites[1].height = 48;
+
+    const size_t sprite_count = sizeof(sprites) / sizeof(sprites[0]);
+
     previous_time = glfwGetTime();
 
     while (!glfwWindowShouldClose(window)) {
@@ -226,13 +227,9 @@ int main(int argc, char **argv)
         int vertical = (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) -
                        (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS);
 
-        double distance = SPRITE_SPEED * elapsed;
-        if (horizontal && vertical) distance /= sqrt(2.0);
+        sprite_move(&sprites[0], horizontal, vertical, elapsed, RENDER_WIDTH, RENDER_HEIGHT);
 
-        int x = move_sprite_axis(&sprite_x, horizontal * distance, RENDER_WIDTH);
-        int y = move_sprite_axis(&sprite_y, vertical * distance, RENDER_HEIGHT);
-
-        if (!renderer_draw(renderer, x, y)) goto cleanup;
+        if (!renderer_draw(renderer, sprites, sprite_count)) goto cleanup;
     }
 
     exit_code = EXIT_SUCCESS;
